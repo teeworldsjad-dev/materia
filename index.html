@@ -1,0 +1,181 @@
+<!-- index.html
+     /index.html
+     /styles.css
+     /js/core.js
+     /js/render-gl.js
+     /js/render-2d.js
+     /js/app.js
+     Открывается двойным кликом по index.html в любом браузере, без сервера и без Telegram.
+-->
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#05070f">
+<meta name="description" content="материя — антистресс-лаборатория: мни, тяни, ломай, лечи золотом.">
+<title>материя — антистресс</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 3c7 0 13 5 13 12 0 8-6 14-13 14S3 24 3 16C3 8 9 3 16 3z' fill='%2335e0d0'/%3E%3Ccircle cx='11' cy='12' r='4' fill='%23eaf2ff' opacity='.7'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;900&family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app">
+
+  <header id="top" data-enter="1">
+    <div class="brand">
+      <svg class="logo-blob" viewBox="0 0 32 32" aria-hidden="true">
+        <defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#35e0d0"/><stop offset=".55" stop-color="#46c8ff"/><stop offset="1" stop-color="#ffc76a"/>
+        </linearGradient></defs>
+        <path d="M16 3c7 0 13 5 13 12 0 8-6 14-13 14S3 24 3 16C3 8 9 3 16 3z" fill="url(#lg)"/>
+        <circle cx="11" cy="12" r="3.4" fill="#eaf2ff" opacity=".75"/>
+      </svg>
+      <div class="brand-txt">
+        <span class="wordmark">материя</span>
+        <span class="tagline">антистресс · мни · ломай · лечи золотом</span>
+      </div>
+    </div>
+    <div class="top-actions">
+      <button id="soundBtn" class="pill-btn" aria-pressed="true" title="звук вкл/выкл">
+        <span class="ic" id="soundIcon"></span><span id="soundLabel">звук</span>
+      </button>
+      <button id="helpBtn" class="icon-btn" aria-label="как играть" title="как играть">
+        <svg viewBox="0 0 24 24"><path d="M9.2 9a2.9 2.9 0 1 1 4.6 2.3c-1 .7-1.8 1.2-1.8 2.6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="17.6" r="1.3" fill="currentColor"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main id="main">
+    <section id="stage" data-enter="2">
+      <canvas id="view" tabindex="0" aria-label="материя: мни пальцем, тяни за край, дави когда твёрдая. фон — вращение, колесо — зум, пробел — тычок."></canvas>
+
+      <div id="chipMat" class="chip">
+        <span class="chip-ic" id="chipIcon"></span>
+        <span class="chip-name" id="chipName">слайм</span>
+        <span class="chip-pct" id="chipPct">32%</span>
+      </div>
+
+      <div id="stressWrap" class="stress" aria-hidden="true">
+        <span class="stress-label">напряжение</span>
+        <span class="stress-track"><span id="stressFill"></span></span>
+      </div>
+
+      <div id="hint" class="hint" aria-hidden="true">
+        <svg class="hint-hand" viewBox="0 0 48 48">
+          <circle class="hint-ring" cx="24" cy="24" r="15" fill="none" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M22 12v14l-4-3.4c-1.2-1-2.8.4-2 1.8l5.4 9c.8 1.4 2.3 2.6 4.6 2.6h4c3 0 5-2 5-5v-8c0-1.4-1-2.4-2.4-2.4-.5 0-1 .2-1.4.5-.2-1.2-1.2-2-2.4-2-.6 0-1.1.2-1.5.5-.3-1.1-1.3-1.9-2.5-1.9-.5 0-1 .1-1.3.4V12c0-1.4-1.5-2.2-2.5-1.4-.6.4-.9 1-.9 1.4z" fill="currentColor" opacity=".9"/>
+        </svg>
+        <div class="hint-txt">мни · тяни · дави</div>
+        <div class="hint-sub">мягкая — течёт, твёрдая — треснет</div>
+      </div>
+
+      <div id="fatal" class="fatal" hidden>
+        <h2>графика не запустилась</h2>
+        <p>браузер не дал ни WebGL, ни Canvas 2D. попробуй другой браузер или включи аппаратное ускорение в настройках.</p>
+        <p class="mono" id="fatalLog"></p>
+      </div>
+
+      <div id="toasts" aria-live="polite"></div>
+
+      <div id="help" class="help-scrim" hidden>
+        <div class="help-card" role="dialog" aria-modal="true" aria-label="как играть">
+          <button id="helpClose" class="icon-btn help-x" aria-label="закрыть">
+            <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </button>
+          <h2>как мять</h2>
+          <ul class="gestures">
+            <li><b>жми и держи</b> — вминается глубже с каждой секундой</li>
+            <li><b>води пальцем или мышью</b> — мни и размазывай, как тесто</li>
+            <li><b>тяни за край</b> — мягкая материя вытягивается в нить и срывается каплями</li>
+            <li><b>дави долго, когда твёрдая</b> — копится напряжение → трещина</li>
+            <li><b>частые тычки</b> по твёрдой — тоже ломают</li>
+            <li><b>кинцуги</b> — залей трещины золотом, шрамы станут украшением</li>
+            <li><b>тяни по фону</b> — вращай камеру · <b>колесо / щипок</b> — зум</li>
+            <li><b>клавиши</b>: стрелки — камера, +/− — зум, пробел — тычок, H — кинцуги, R — сброс</li>
+          </ul>
+          <p class="help-note">звук включится с первым касанием — так требует браузер. семь трещин — и материя разобьётся, чтобы собраться заново.</p>
+          <p class="help-mode mono" id="helpMode">рендер: —</p>
+        </div>
+      </div>
+    </section>
+
+    <aside id="deck" data-enter="3">
+      <div class="deck-sec" data-title="материя">
+        <div class="hero-ctl">
+          <div class="ctl-head"><span class="ctl-name">твёрдость</span><span class="ctl-val mono" id="hVal">32%</span></div>
+          <input type="range" id="hSlider" class="range hero" min="0" max="100" value="32" step="1" aria-label="твёрдость материи">
+          <div class="zone-ticks" id="zoneTicks">
+            <span data-z="0">вода</span><span data-z="1">слайм</span><span data-z="2">лёд</span><span data-z="3">камень</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="deck-sec grid3" data-title="поведение">
+        <div class="mini-ctl">
+          <div class="ctl-head"><span class="ctl-name">размер</span><span class="ctl-val mono" id="sizeVal">1.00</span></div>
+          <input type="range" id="sizeSlider" class="range" min="60" max="160" value="100" aria-label="размер">
+        </div>
+        <div class="mini-ctl">
+          <div class="ctl-head"><span class="ctl-name">упругость</span><span class="ctl-val mono" id="elasVal">65</span></div>
+          <input type="range" id="elasSlider" class="range" min="0" max="100" value="65" aria-label="упругость">
+        </div>
+        <div class="mini-ctl">
+          <div class="ctl-head"><span class="ctl-name">свечение</span><span class="ctl-val mono" id="glowVal">100</span></div>
+          <input type="range" id="glowSlider" class="range" min="0" max="200" value="100" aria-label="свечение">
+        </div>
+        <div class="mini-ctl">
+          <div class="ctl-head"><span class="ctl-name">частицы</span><span class="ctl-val mono" id="partVal">100</span></div>
+          <input type="range" id="partSlider" class="range" min="0" max="200" value="100" aria-label="количество частиц">
+        </div>
+        <div class="mini-ctl">
+          <div class="ctl-head"><span class="ctl-name">тема</span></div>
+          <div class="theme-row" id="themeDots"></div>
+        </div>
+        <div class="mini-ctl">
+          <div class="ctl-head"><span class="ctl-name">качество</span></div>
+          <div class="seg" id="qualSeg" role="group" aria-label="качество графики">
+            <button data-q="eco">эко</button><button data-q="bal" class="on">баланс</button><button data-q="ultra">ультра</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="deck-sec chips-row" data-title="режим">
+        <button id="vibChip" class="chip-toggle on" aria-pressed="true"><i class="dot"></i>вибро</button>
+        <button id="rotChip" class="chip-toggle on" aria-pressed="true"><i class="dot"></i>вращение</button>
+        <span class="stats mono" id="stats">замесы 0 · трещины 0 · кинцуги 0</span>
+      </div>
+
+      <div class="deck-sec actions" data-title="действия">
+        <button id="healBtn" class="act gold">
+          <svg viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z" fill="currentColor"/><path d="M18.5 15.5l.9 2.6 2.6.9-2.6.9-.9 2.6-.9-2.6-2.6-.9 2.6-.9z" fill="currentColor" opacity=".7"/></svg>
+          кинцуги
+        </button>
+        <button id="resetBtn" class="act ghost">
+          <svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.3-5.6M6 3v4h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          сброс
+        </button>
+        <button id="randBtn" class="act ghost violet">
+          <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="4" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="9" cy="9" r="1.5" fill="currentColor"/><circle cx="15" cy="15" r="1.5" fill="currentColor"/><circle cx="15" cy="9" r="1.5" fill="currentColor"/><circle cx="9" cy="15" r="1.5" fill="currentColor"/></svg>
+          наугад
+        </button>
+        <button id="shotBtn" class="act ghost cyan">
+          <svg viewBox="0 0 24 24"><path d="M4 8h3l2-2.5h6L17 8h3v11H4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.2" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+          снимок
+        </button>
+      </div>
+
+      <div class="deck-foot">сделано для паузы · выдохни <span class="mono" id="renderBadge"></span></div>
+    </aside>
+  </main>
+</div>
+
+<noscript><div class="noscript">для материи нужен javascript</div></noscript>
+<script src="js/core.js"></script>
+<script src="js/render-gl.js"></script>
+<script src="js/render-2d.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
