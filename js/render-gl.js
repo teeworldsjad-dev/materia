@@ -1,5 +1,4 @@
-/* js/render-gl.js — исправлена строка выборки текстуры трещин: vec2 = texture2D(...).rg
-   заменить только этот файл, остальные не трогать */
+/* js/render-gl.js — WebGL: материя, выщербины, откалывающиеся куски, распад и сборка */
 (function(){
 "use strict";
 const M=window.MAT;
@@ -25,20 +24,25 @@ vec2 dirUV(vec3 d){return vec2(0.5+atan(d.z,d.x)/6.2831853,0.5-asin(clamp(d.y,-1
 const BLOB_VS=`
 attribute vec3 aPos;
 uniform mat4 uProj,uView;
-uniform float uTime,uSag,uVTF,uCrackAmt;
+uniform float uTime,uSag,uVTF,uCrackAmt,uBiteAmt;
 uniform vec3 uSquash,uOsc,uOscF,uNoise;
 uniform vec4 uDent[14];
 uniform float uDentR[14];
+uniform vec4 uBite[12];
+uniform float uBiteR[12];
 uniform sampler2D uCrack;
 varying vec3 vN;
 varying vec3 vP;
 varying vec3 vD;
 varying float vPress;
+varying float vBite;
 ${NOISE_GLSL}
 float gPress;
+float gBite;
 vec3 displace(vec3 d){
   float r=1.0;
   gPress=0.0;
+  gBite=0.0;
   for(int i=0;i<14;i++){
     vec4 dn=uDent[i];
     float dep=dn.w;
@@ -55,6 +59,20 @@ vec3 displace(vec3 d){
         float w=exp(-ad*ad/(sr*sr));
         r+=dep*w;
         gPress+=dep*w;
+      }
+    }
+  }
+  if(uBiteAmt>0.5){
+    for(int i=0;i<12;i++){
+      vec4 bt=uBite[i];
+      if(bt.w>0.0005){
+        float ad2=acos(clamp(dot(d,bt.xyz),-1.0,1.0));
+        float br=max(uBiteR[i],0.06);
+        float w=1.0-smoothstep(br*0.5,br,ad2);
+        r-=bt.w*w;
+        gBite+=w;
+        float ring=smoothstep(br*0.55,br*0.95,ad2)*(1.0-smoothstep(br*0.95,br*1.4,ad2));
+        r+=bt.w*0.4*ring;
       }
     }
   }
@@ -79,6 +97,7 @@ void main(){
   vec3 d=normalize(aPos);
   vec3 p=displace(d);
   vPress=gPress;
+  vBite=gBite;
   vec3 upv=vec3(0.0,1.0,0.0);
   if(abs(d.y)>0.99)upv=vec3(1.0,0.0,0.0);
   vec3 T=normalize(cross(d,upv));
@@ -97,6 +116,7 @@ varying vec3 vN;
 varying vec3 vP;
 varying vec3 vD;
 varying float vPress;
+varying float vBite;
 uniform vec3 uEye,uColDeep,uColBright,uRim,uEmber,uGold,uFog,uStressDir;
 uniform float uTime,uHard,uGlow,uEnergy,uStress,uGoldPulse,uVein,uCrackAmt;
 uniform sampler2D uCrack;
@@ -145,6 +165,9 @@ void main(){
   col+=uColBright*(0.05+0.10*uGlow)*(1.0-fres)*wLiq;
   col+=uColBright*uEnergy*0.12;
   col+=vec3(1.0)*spark*0.8;
+  float bite=clamp(vBite,0.0,1.0);
+  col=mix(col,uColDeep*0.55,bite*0.6);
+  col+=uEmber*bite*0.22*(0.4+uGoldPulse);
   vec2 ck=texture2D(uCrack,dirUV(vD)).rg;
   float cm=ck.r*step(0.001,uCrackAmt);
   col=mix(col,col*0.15,cm*0.85);
@@ -161,6 +184,42 @@ void main(){
   col=mix(col,col*0.6,sm*0.4);
   float fd=length(uEye-vP);
   col=mix(col,uFog,smoothstep(6.0,11.0,fd)*0.5);
+  col=col/(1.0+col*0.35);
+  col=pow(max(col,vec3(0.0)),vec3(0.85));
+  gl_FragColor=vec4(col,1.0);
+}`;
+
+const SHARD_VS=`
+attribute vec3 aPos;
+attribute vec3 aNormal;
+uniform mat4 uProj,uView,uModel;
+varying vec3 vN;
+varying vec3 vP;
+void main(){
+  vec4 wp=uModel*vec4(aPos,1.0);
+  vP=wp.xyz;
+  vN=normalize((uModel*vec4(aNormal,0.0)).xyz);
+  gl_Position=uProj*uView*wp;
+}`;
+const SHARD_FS=`
+varying vec3 vN;
+varying vec3 vP;
+uniform vec3 uEye,uDeep,uBright,uRim,uEmber;
+uniform float uHard,uFresh,uGlow;
+void main(){
+  vec3 N=normalize(vN);
+  vec3 V=normalize(uEye-vP);
+  float fres=pow(1.0-max(dot(N,V),0.0),2.4);
+  vec3 L1=normalize(vec3(0.6,0.9,0.5));
+  vec3 L2=normalize(vec3(-0.7,0.25,-0.6));
+  float dif=max(dot(N,L1),0.0);
+  vec3 base=mix(uDeep,uBright,0.22+0.6*fres);
+  vec3 col=base*(0.22+0.95*dif);
+  col+=base*max(dot(N,normalize(vec3(0.1,-0.8,0.3))),0.0)*vec3(0.2,0.09,0.2)*0.5;
+  vec3 H=normalize(L1+V);
+  col+=vec3(1.0,0.97,0.9)*pow(max(dot(N,H),0.0),mix(90.0,14.0,uHard))*mix(0.95,0.3,uHard);
+  col+=uRim*fres*(0.55+0.35*uGlow);
+  col+=uEmber*uFresh*(0.3+fres*1.3);
   col=col/(1.0+col*0.35);
   col=pow(max(col,vec3(0.0)),vec3(0.85));
   gl_FragColor=vec4(col,1.0);
@@ -242,10 +301,12 @@ void main(){
   gl_FragColor=vec4(uColor,t*uOpacity);
 }`;
 
+const ICO_V=[[-1,1.618,0],[1,1.618,0],[-1,-1.618,0],[1,-1.618,0],[0,-1,1.618],[0,1,1.618],[0,-1,-1.618],[0,1,-1.618],[1.618,0,-1],[1.618,0,1],[-1.618,0,-1],[-1.618,0,1]];
+const ICO_F=[[0,11,5],[0,5,1],[0,1,7],[0,7,10],[0,10,11],[1,5,9],[5,11,4],[11,10,2],[10,7,6],[7,1,8],[3,9,4],[3,4,2],[3,2,6],[3,6,8],[3,8,9],[4,9,5],[2,4,11],[6,2,10],[8,6,7],[9,8,1]];
+
 function icosphere(sub){
-  const t=(1+Math.sqrt(5))/2;
-  let verts=[[-1,t,0],[1,t,0],[-1,-t,0],[1,-t,0],[0,-1,t],[0,1,t],[0,-1,-t],[0,1,-t],[t,0,-1],[t,0,1],[-t,0,-1],[-t,0,1]].map(norm);
-  let faces=[[0,11,5],[0,5,1],[0,1,7],[0,7,10],[0,10,11],[1,5,9],[5,11,4],[11,10,2],[10,7,6],[7,1,8],[3,9,4],[3,4,2],[3,2,6],[3,6,8],[3,8,9],[4,9,5],[2,4,11],[6,2,10],[8,6,7],[9,8,1]];
+  let verts=ICO_V.map(norm);
+  let faces=ICO_F.map(f=>f.slice());
   for(let s=0;s<sub;s++){
     const cache=new Map(),nf=[];
     const mid=(a,b)=>{
@@ -266,6 +327,26 @@ function icosphere(sub){
   faces.forEach((f,i)=>{idx[i*3]=f[0];idx[i*3+1]=f[1];idx[i*3+2]=f[2];});
   return{pos,idx,count:idx.length};
 }
+function shardData(seed){
+  const rng=mulberry(seed);
+  const sx=.72+rng()*.6,sy=.42+rng()*.5,sz=.72+rng()*.6;
+  const verts=ICO_V.map(norm).map(v=>{
+    const k=.6+rng()*.6;
+    return[v[0]*sx*k,v[1]*sy*k,v[2]*sz*k];
+  });
+  const data=new Float32Array(ICO_F.length*18);
+  let o=0;
+  for(const f of ICO_F){
+    const a=verts[f[0]],b=verts[f[1]],c=verts[f[2]];
+    const n=norm(cross(sub(b,a),sub(c,a)));
+    const tri=[a,b,c];
+    for(let i=0;i<3;i++){
+      data[o++]=tri[i][0];data[o++]=tri[i][1];data[o++]=tri[i][2];
+      data[o++]=n[0];data[o++]=n[1];data[o++]=n[2];
+    }
+  }
+  return data;
+}
 function perspective(fov,aspect,near,far){
   const f=1/Math.tan(fov/2),nf=1/(near-far);
   return new Float32Array([f/aspect,0,0,0, 0,f,0,0, 0,0,(far+near)*nf,-1, 0,0,2*far*near*nf,0]);
@@ -274,8 +355,18 @@ function lookAt(eye,ct,up){
   const f=norm(sub(ct,eye)),r=norm(cross(f,up)),u=cross(r,f);
   return{m:new Float32Array([r[0],u[0],-f[0],0, r[1],u[1],-f[1],0, r[2],u[2],-f[2],0, -dot(r,eye),-dot(u,eye),dot(f,eye),1]),r,u,f};
 }
+function modelMat(out,p,rot,s){
+  const ca=Math.cos(rot[0]),sa=Math.sin(rot[0]);
+  const cb=Math.cos(rot[1]),sb=Math.sin(rot[1]);
+  const cc=Math.cos(rot[2]),sc=Math.sin(rot[2]);
+  out[0]=(cc*cb)*s;            out[1]=(sc*cb)*s;            out[2]=(-sb)*s;     out[3]=0;
+  out[4]=(cc*sb*sa-sc*ca)*s;   out[5]=(sc*sb*sa+cc*ca)*s;   out[6]=(cb*sa)*s;   out[7]=0;
+  out[8]=(cc*sb*ca+sc*sa)*s;   out[9]=(sc*sb*ca-cc*sa)*s;   out[10]=(cb*ca)*s;  out[11]=0;
+  out[12]=p[0];out[13]=p[1];out[14]=p[2];out[15]=1;
+  return out;
+}
 
-const QUAL={eco:{sub:4,dpr:1.25,motes:40},bal:{sub:5,dpr:1.75,motes:130},ultra:{sub:6,dpr:2,motes:200}};
+const QUAL={eco:{sub:4,dpr:1.25,motes:40},bal:{sub:5,dpr:1.75,motes:90},ultra:{sub:6,dpr:2,motes:150}};
 const MAXP=900;
 
 class RendererGL{
@@ -292,6 +383,7 @@ class RendererGL{
     this.shakeAmp=0;this.flashA=0;this.flashCol=[1,.95,.85];
     this.w=2;this.h=2;this.dpr=1;this.lost=false;this.pendingQ=null;this.crackDirty=false;
     this.eye=[0,0,4.2];this.basis=null;this.fov=42*Math.PI/180;
+    this._mm=new Float32Array(16);
     this.crackCanvas=document.createElement('canvas');
     this.crackCanvas.width=1024;this.crackCanvas.height=512;
     this.cctx=this.crackCanvas.getContext('2d');
@@ -332,13 +424,30 @@ class RendererGL{
       p._u={};p._a={};return p;
     };
     this.progBlob=link(BLOB_VS,BLOB_FS);
+    this.progShard=link(SHARD_VS,SHARD_FS);
     this.progBg=link(QUADISH_VS,BG_FS);
     this.progPts=link(PTS_VS,PTS_FS);
     this.progQuad=link(QUAD_VS,QUAD_FS);
     this.U=(p,n)=>{if(!(n in p._u))p._u[n]=gl.getUniformLocation(p,n);return p._u[n];};
     this.A=(p,n)=>{if(!(n in p._a))p._a[n]=gl.getAttribLocation(p,n);return p._a[n];};
+    this._useAttribs=(p,defs)=>{
+      for(let i=0;i<8;i++)gl.disableVertexAttribArray(i);
+      for(const d of defs){
+        const l=this.A(p,d.n);
+        if(l<0)continue;
+        gl.enableVertexAttribArray(l);
+        gl.vertexAttribPointer(l,d.s,gl.FLOAT,false,d.st||0,d.o||0);
+      }
+    };
     const q=QUAL[this.sim.settings.quality]||QUAL.bal;
     this._buildGeo(q.sub);
+    this.shardVBO=[];
+    for(let i=0;i<6;i++){
+      const b=gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER,b);
+      gl.bufferData(gl.ARRAY_BUFFER,shardData(1000+i*77),gl.STATIC_DRAW);
+      this.shardVBO.push(b);
+    }
     this.quadVBO=gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER,this.quadVBO);
     gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
@@ -387,6 +496,8 @@ class RendererGL{
     this.idxCount=geo.count;
     this._dentArr=new Float32Array(56);
     this._dentR=new Float32Array(14);
+    this._biteArr=new Float32Array(48);
+    this._biteR=new Float32Array(12);
   }
   setQuality(q){this.pendingQ=q;}
   resize(w,h){
@@ -443,11 +554,18 @@ class RendererGL{
       p.x=dir[0]*R*rand(.7,1);p.y=dir[1]*R*rand(.7,1);p.z=dir[2]*R*rand(.7,1);
       const s=rand(1.5,4);
       p.vx=dir[0]*s+rand(-1.6,1.6);p.vy=dir[1]*s+rand(-.5,2);p.vz=dir[2]*s+rand(-1.6,1.6);
-      p.life=p.max=rand(.5,1.2);p.size=rand(2.5,6);p.grav=6;p.drag=.4;
+      p.life=p.max=rand(.5,1.2);p.size=rand(2,5);p.grav=6;p.drag=.4;
+      p.r=col[0];p.g=col[1];p.b=col[2];});
+  }
+  dustAt(pos,n,col){
+    this._spawn(n,p=>{
+      p.x=pos[0]+rand(-.06,.06);p.y=pos[1]+rand(-.02,.06);p.z=pos[2]+rand(-.06,.06);
+      p.vx=rand(-.7,.7);p.vy=rand(.1,.9);p.vz=rand(-.7,.7);
+      p.life=p.max=rand(.3,.7);p.size=rand(1.5,3.4);p.grav=1.2;p.drag=1.2;
       p.r=col[0];p.g=col[1];p.b=col[2];});
   }
   goldSparks(n){
-    const R=this.sim.renderScale(),gold=hex2rgb(M.GOLD);
+    const R=Math.max(this.sim.renderScale(),.5),gold=hex2rgb(M.GOLD);
     this._spawn(n,p=>{
       const th=rand(0,Math.PI*2),ph=rand(-1,1);
       p.x=Math.cos(th)*R;p.y=ph*R;p.z=Math.sin(th)*R;
@@ -523,7 +641,8 @@ class RendererGL{
     ctx.save();
     ctx.globalCompositeOperation='lighter';
     ctx.strokeStyle=color;ctx.lineCap='round';ctx.lineJoin='round';
-    for(const off of[-W,0,W]){
+    const offs=[-W,0,W];
+    for(const off of offs){
       for(const p of paths){
         ctx.lineWidth=p.w+extraW;
         ctx.beginPath();
@@ -555,7 +674,7 @@ class RendererGL{
   shake(a){this.shakeAmp=Math.min(this.shakeAmp+a,1.2);}
   flash(a,col){this.flashA=Math.min(this.flashA+a,1);if(col)this.flashCol=col;}
   orbit(dx,dy){this.yawT-=dx*.005;this.pitchT=clamp(this.pitchT+dy*.005,-1.2,1.2);}
-  zoom(f){this.distT=clamp(this.distT*f,2.2,7);}
+  zoom(f){this.distT=clamp(this.distT*f,2.2,7.5);}
   viewDir(){return norm(this.eye);}
   pick(x,y){
     const R=Math.max(this.sim.renderScale(),.001);
@@ -579,16 +698,22 @@ class RendererGL{
     const d=Math.hypot(cp[0],cp[1],cp[2])||1;
     return{hit:false,dir:norm(cp),closestDir:norm(cp),dist:d,R};
   }
+  _colsFor(h){
+    const s=this.sim.settings,th=M.THEMES[s.theme]||M.THEMES.ocean;
+    const t=smooth(clamp((h-.25)/.6,0,1));
+    return{
+      deep:mixRGB(hex2rgb(th.liqDeep),hex2rgb(th.solDeep),t),
+      bright:mixRGB(hex2rgb(th.liqBright),hex2rgb(th.solBright),t)
+    };
+  }
   _colors(){
     const s=this.sim.settings,th=M.THEMES[s.theme]||M.THEMES.ocean;
-    const t=smooth(clamp((s.hardness-.25)/.6,0,1));
-    const deep=mixRGB(hex2rgb(th.liqDeep),hex2rgb(th.solDeep),t);
-    const bright=mixRGB(hex2rgb(th.liqBright),hex2rgb(th.solBright),t);
+    const c=this._colsFor(s.hardness);
     const rim=hex2rgb(s.accent||th.rim);
     const ember=hex2rgb(th.ember);
     const glow=mixRGB(hex2rgb(th.glow),rim,.5);
-    this._bright=bright;
-    return{deep,bright,rim,ember,glow,vein:th.vein,gold:hex2rgb(M.GOLD)};
+    this._bright=c.bright;
+    return{deep:c.deep,bright:c.bright,rim,ember,glow,vein:th.vein,gold:hex2rgb(M.GOLD)};
   }
   render(t,dt){
     if(this.lost)return;
@@ -628,8 +753,7 @@ class RendererGL{
     gl.disable(gl.DEPTH_TEST);gl.depthMask(false);gl.disable(gl.BLEND);
     let p=this.progBg;gl.useProgram(p);
     gl.bindBuffer(gl.ARRAY_BUFFER,this.quadVBO);
-    gl.enableVertexAttribArray(this.A(p,'aPos'));
-    gl.vertexAttribPointer(this.A(p,'aPos'),2,gl.FLOAT,false,0,0);
+    this._useAttribs(p,[{n:'aPos',s:2}]);
     gl.uniform2f(this.U(p,'uRes'),this.canvas.width,this.canvas.height);
     gl.uniform1f(this.U(p,'uTime'),t);
     gl.uniform2f(this.U(p,'uBlobNDC'),ndc[0],ndc[1]);
@@ -642,8 +766,7 @@ class RendererGL{
     const drawQuad=(mode,center,sx,sy,tex,color,opacity,additive)=>{
       const q=this.progQuad;gl.useProgram(q);
       gl.bindBuffer(gl.ARRAY_BUFFER,this.quadVBO);
-      gl.enableVertexAttribArray(this.A(q,'aPos'));
-      gl.vertexAttribPointer(this.A(q,'aPos'),2,gl.FLOAT,false,0,0);
+      this._useAttribs(q,[{n:'aPos',s:2}]);
       gl.uniformMatrix4fv(this.U(q,'uProj'),false,proj);
       gl.uniformMatrix4fv(this.U(q,'uView'),false,view);
       gl.uniform1f(this.U(q,'uMode'),mode);
@@ -659,7 +782,20 @@ class RendererGL{
       gl.blendFunc(gl.SRC_ALPHA,additive?gl.ONE:gl.ONE_MINUS_SRC_ALPHA);
       gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
     };
-    if(scale>.05)drawQuad(2,[0,-1.42*scale,0],1.5*scale,.62*scale,this.texRadial,[0,0,0],.45*introK,false);
+    /* пол-свет и тени */
+    const poolCol=[C.glow[0]*.16+.03,C.glow[1]*.16+.04,C.glow[2]*.16+.07];
+    drawQuad(2,[0,M.FLOOR-.02,0],5.2,5.2,this.texRadial,poolCol,.55,false);
+    if(scale>.05)drawQuad(2,[0,M.FLOOR+.01,0],1.5*scale,.62*scale,this.texRadial,[0,0,0],.45*introK,false);
+    const chunks=sim.chunks;
+    for(let i=0;i<chunks.length;i++){
+      const c=chunks[i];
+      const fade=c.mode==='return'?1:clamp(c.life/.5,0,1);
+      const cs=c.size*fade;
+      if(cs<.006)continue;
+      const hgt=clamp((c.p[1]-M.FLOOR)/2.4,0,1);
+      const op=(1-hgt)*.4*fade;
+      if(op>.01)drawQuad(2,[c.p[0],M.FLOOR+.015,c.p[2]],cs*1.7,cs*1.1,this.texRadial,[0,0,0],op,false);
+    }
     if(scale>.05&&s.glow>0){
       const gs=2.6*scale*(1+sim.energy*.15);
       drawQuad(0,[0,0,0],gs,gs,this.texRadial,C.glow,.3*s.glow*introK,true);
@@ -669,8 +805,7 @@ class RendererGL{
       gl.disable(gl.BLEND);gl.enable(gl.DEPTH_TEST);gl.depthMask(true);
       p=this.progBlob;gl.useProgram(p);
       gl.bindBuffer(gl.ARRAY_BUFFER,this.blobVBO);
-      gl.enableVertexAttribArray(this.A(p,'aPos'));
-      gl.vertexAttribPointer(this.A(p,'aPos'),3,gl.FLOAT,false,0,0);
+      this._useAttribs(p,[{n:'aPos',s:3}]);
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,this.blobIBO);
       gl.uniformMatrix4fv(this.U(p,'uProj'),false,proj);
       gl.uniformMatrix4fv(this.U(p,'uView'),false,view);
@@ -691,6 +826,15 @@ class RendererGL{
       }
       gl.uniform4fv(this.U(p,'uDent'),dArr);
       gl.uniform1fv(this.U(p,'uDentR'),rArr);
+      const bArr=this._biteArr,bR=this._biteR;
+      for(let i=0;i<12;i++){
+        const b=sim.bites[i];
+        if(b){bArr[i*4]=b.dir[0];bArr[i*4+1]=b.dir[1];bArr[i*4+2]=b.dir[2];bArr[i*4+3]=b.depth;bR[i]=b.r;}
+        else{bArr[i*4]=0;bArr[i*4+1]=1;bArr[i*4+2]=0;bArr[i*4+3]=0;bR[i]=.1;}
+      }
+      gl.uniform4fv(this.U(p,'uBite'),bArr);
+      gl.uniform1fv(this.U(p,'uBiteR'),bR);
+      gl.uniform1f(this.U(p,'uBiteAmt'),sim.bites.length?1:0);
       gl.uniform1f(this.U(p,'uVTF'),this.vtf?1:0);
       gl.uniform1f(this.U(p,'uCrackAmt'),sim.cracks.length?.02:0);
       gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,this.texCrack);
@@ -713,6 +857,38 @@ class RendererGL{
         drawQuad(0,[0,0,0],2.2*scale,2.2*scale,this.texRadial,C.glow,.1*s.glow*(0.5+sim.energy*.5),true);
       }
     }
+    /* осколки */
+    if(chunks.length){
+      gl.disable(gl.BLEND);gl.enable(gl.DEPTH_TEST);gl.depthMask(true);
+      const sp=this.progShard;gl.useProgram(sp);
+      gl.uniformMatrix4fv(this.U(sp,'uProj'),false,proj);
+      gl.uniformMatrix4fv(this.U(sp,'uView'),false,view);
+      gl.uniform3fv(this.U(sp,'uEye'),eye);
+      gl.uniform3fv(this.U(sp,'uRim'),C.rim);
+      gl.uniform3fv(this.U(sp,'uEmber'),C.ember);
+      gl.uniform1f(this.U(sp,'uGlow'),s.glow);
+      let lastVar=-1;
+      for(let i=0;i<chunks.length;i++){
+        const c=chunks[i];
+        const fade=c.mode==='return'?1:clamp(c.life/.5,0,1);
+        const cs=c.size*fade;
+        if(cs<.006)continue;
+        if(!c._cols)c._cols=this._colsFor(c.hard);
+        const vi=c.variant%this.shardVBO.length;
+        if(vi!==lastVar){
+          gl.bindBuffer(gl.ARRAY_BUFFER,this.shardVBO[vi]);
+          this._useAttribs(sp,[{n:'aPos',s:3,st:24,o:0},{n:'aNormal',s:3,st:24,o:12}]);
+          lastVar=vi;
+        }
+        modelMat(this._mm,c.p,c.rot,cs);
+        gl.uniformMatrix4fv(this.U(sp,'uModel'),false,this._mm);
+        gl.uniform3fv(this.U(sp,'uDeep'),c._cols.deep);
+        gl.uniform3fv(this.U(sp,'uBright'),c._cols.bright);
+        gl.uniform1f(this.U(sp,'uHard'),c.hard);
+        gl.uniform1f(this.U(sp,'uFresh'),clamp(c.fresh,0,1));
+        gl.drawArrays(gl.TRIANGLES,0,60);
+      }
+    }
     /* частицы */
     if(this.pActive>0){
       gl.enable(gl.DEPTH_TEST);gl.depthMask(false);
@@ -720,9 +896,7 @@ class RendererGL{
       p=this.progPts;gl.useProgram(p);
       gl.bindBuffer(gl.ARRAY_BUFFER,this.ptsVBO);
       gl.bufferSubData(gl.ARRAY_BUFFER,0,this.pData.subarray(0,this.pActive*8));
-      const stride=32;
-      const loc=(n,sz,off)=>{const l=this.A(p,n);if(l<0)return;gl.enableVertexAttribArray(l);gl.vertexAttribPointer(l,sz,gl.FLOAT,false,stride,off);};
-      loc('aPos',3,0);loc('aSize',1,12);loc('aCol',3,16);loc('aAlpha',1,28);
+      this._useAttribs(p,[{n:'aPos',s:3,st:32,o:0},{n:'aSize',s:1,st:32,o:12},{n:'aCol',s:3,st:32,o:16},{n:'aAlpha',s:1,st:32,o:28}]);
       gl.uniformMatrix4fv(this.U(p,'uProj'),false,proj);
       gl.uniformMatrix4fv(this.U(p,'uView'),false,view);
       gl.uniform1f(this.U(p,'uPx'),this.dpr);

@@ -1,4 +1,4 @@
-/* js/app.js — интерфейс, ввод, единый цикл, авто-фолбэк, Telegram только внутри Telegram */
+/* js/app.js — интерфейс, ввод, единый цикл, сколы/распад/сборка, Telegram только внутри Telegram */
 (function(){
 "use strict";
 const M=window.MAT;
@@ -7,7 +7,8 @@ const $=id=>document.getElementById(id);
 
 function boot(){
   if(!M||!M.Sim){
-    const f=$('fatal');if(f){f.hidden=false;$('fatalLog').textContent='не загрузился js/core.js — проверь папку js рядом с index.html';}
+    const f=$('fatal');
+    if(f){f.hidden=false;$('fatalLog').textContent='не загрузился js/core.js — проверь папку js рядом с index.html';}
     return;
   }
   const sim=new M.Sim();
@@ -16,29 +17,28 @@ function boot(){
   sim.reduced=!!(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches);
   if(sim.reduced)sim.intro.a=1;
 
-  /* сохранённое состояние */
-  const KEY='materia.v1';
+  const KEY='materia.v2';
   let saved=null;
-  try{saved=JSON.parse(localStorage.getItem(KEY)||'null');}catch(e){}
+  try{saved=JSON.parse(localStorage.getItem(KEY)||localStorage.getItem('materia.v1')||'null');}catch(e){}
   if(saved){
     if(saved.settings)for(const k in sim.settings)if(k in saved.settings)sim.settings[k]=saved.settings[k];
-    if(saved.counters)Object.assign(sim.counters,saved.counters);
+    if(saved.counters)for(const k in sim.counters)if(k in saved.counters)sim.counters[k]=saved.counters[k];
     if(!M.THEMES[sim.settings.theme])sim.settings.theme='ocean';
     if(!M.QUAL[sim.settings.quality])sim.settings.quality='bal';
+    sim.settings.chunkSize=clamp(sim.settings.chunkSize,.5,1.8);
+    sim.settings.gravity=clamp(sim.settings.gravity,0,14);
+    sim.settings.scatter=clamp(sim.settings.scatter,.3,2.4);
   }
   let saveT=null;
   const save=()=>{clearTimeout(saveT);saveT=setTimeout(()=>{
     try{localStorage.setItem(KEY,JSON.stringify({settings:sim.settings,counters:sim.counters}));}catch(e){}},700);};
 
-  /* рендерер: WebGL, при неудаче — свежий canvas и 2D */
   const stage=$('stage');
   let canvas=$('view');
   let renderer=null,glMode=false,fatalShown=false;
-
   function showFatal(msg){
     fatalShown=true;
-    const f=$('fatal');
-    f.hidden=false;
+    $('fatal').hidden=false;
     $('fatalLog').textContent=String(msg||'').slice(0,300);
     $('hint').classList.add('hidden');
   }
@@ -56,18 +56,11 @@ function boot(){
     }catch(err){
       console.warn('[материя] WebGL не запустился, включаю 2D:',err&&err.message);
       canvas=freshCanvas();
-      try{
-        renderer=new M.Renderer2D(canvas,sim);
-        glMode=false;
-      }catch(err2){
-        console.error('[материя] 2D тоже недоступен:',err2);
-        showFatal(err&&err.message);
-        renderer=null;
-      }
+      try{renderer=new M.Renderer2D(canvas,sim);glMode=false;}
+      catch(err2){console.error('[материя] 2D тоже недоступен:',err2);showFatal(err&&err.message);renderer=null;}
     }
   }
   buildRenderer();
-
   function updateModeBadge(){
     if(!renderer)return;
     const txt=renderer.modeName+' · '+sim.settings.quality;
@@ -75,14 +68,12 @@ function boot(){
     $('renderBadge').textContent='· '+renderer.modeName.toLowerCase();
   }
 
-  /* Telegram подключается только внутри Telegram — в обычном браузере скрипта нет */
   let tg=null;
   const setVH=()=>{
     const h=(tg&&tg.viewportStableHeight)||window.innerHeight;
     document.documentElement.style.setProperty('--app-h',h+'px');
   };
-  const inTG=/tgWebAppData|tgWebAppVersion|tgWebAppPlatform/.test(location.hash+' '+location.search);
-  if(inTG){
+  if(/tgWebAppData|tgWebAppVersion|tgWebAppPlatform/.test(location.hash+' '+location.search)){
     const sc=document.createElement('script');
     sc.src='https://telegram.org/js/telegram-web-app.js';
     sc.onload=()=>{
@@ -101,7 +92,6 @@ function boot(){
     document.head.appendChild(sc);
   }
   setVH();
-
   const doResize=()=>{
     const r=stage.getBoundingClientRect();
     if(renderer)renderer.resize(r.width,r.height);
@@ -110,10 +100,8 @@ function boot(){
   if(window.ResizeObserver)new ResizeObserver(doResize).observe(stage);
   window.addEventListener('resize',doResize);
   if(window.visualViewport)window.visualViewport.addEventListener('resize',doResize);
-  doResize();
-  updateModeBadge();
+  doResize();updateModeBadge();
 
-  /* тосты */
   const toastsEl=$('toasts');
   function toast(msg,kind){
     const el=document.createElement('div');
@@ -124,25 +112,34 @@ function boot(){
     setTimeout(()=>{el.classList.add('out');setTimeout(()=>el.remove(),350);},2400);
   }
 
-  /* элементы управления */
   const hSlider=$('hSlider'),hVal=$('hVal');
   const sizeS=$('sizeSlider'),sizeV=$('sizeVal');
   const elasS=$('elasSlider'),elasV=$('elasVal');
   const glowS=$('glowSlider'),glowV=$('glowVal');
   const partS=$('partSlider'),partV=$('partVal');
+  const chunkS=$('chunkSlider'),chunkV=$('chunkVal');
+  const gravS=$('gravSlider'),gravV=$('gravVal');
+  const scatS=$('scatSlider'),scatV=$('scatVal');
   const zoneTicks=Array.prototype.slice.call($('zoneTicks').children);
   const chipName=$('chipName'),chipPct=$('chipPct'),chipIcon=$('chipIcon');
-  const healBtn=$('healBtn'),statsEl=$('stats');
+  const healBtn=$('healBtn'),smashBtn=$('smashBtn'),statsEl=$('stats');
+  const intWrap=$('integrityWrap'),intFill=$('integrityFill'),intPct=$('integrityPct');
   const fillVar=el=>{const p=(el.value-el.min)/(el.max-el.min)*100;el.style.setProperty('--val',p+'%');};
 
-  function updateStats(){statsEl.textContent='замесы '+sim.counters.squeezes+' · трещины '+sim.counters.cracks+' · кинцуги '+sim.counters.heals;}
-  function updateHealPulse(){healBtn.classList.toggle('pulse',sim.cracks.some(c=>!c.healed));}
+  function updateStats(){statsEl.textContent='замесы '+sim.counters.squeezes+' · осколки '+sim.counters.chips+' · кинцуги '+sim.counters.heals;}
+  function updateHealPulse(){
+    const need=sim.cracks.some(c=>!c.healed)||sim.bites.some(b=>b.depth>.05)||sim.integrity<.999;
+    healBtn.classList.toggle('pulse',need&&sim.phase==='live');
+  }
   function syncUI(){
     hSlider.value=Math.round(sim.settings.hardness*100);hVal.textContent=hSlider.value+'%';fillVar(hSlider);
     sizeS.value=Math.round(sim.settings.size*100);sizeV.textContent=sim.settings.size.toFixed(2);fillVar(sizeS);
     elasS.value=Math.round(sim.settings.elasticity*100);elasV.textContent=elasS.value;fillVar(elasS);
     glowS.value=Math.round(sim.settings.glow*100);glowV.textContent=glowS.value;fillVar(glowS);
     partS.value=Math.round(sim.settings.particles*100);partV.textContent=partS.value;fillVar(partS);
+    chunkS.value=Math.round(sim.settings.chunkSize*100);chunkV.textContent=chunkS.value;fillVar(chunkS);
+    gravS.value=Math.round(sim.settings.gravity*10);gravV.textContent=sim.settings.gravity.toFixed(1);fillVar(gravS);
+    scatS.value=Math.round(sim.settings.scatter*100);scatV.textContent=sim.settings.scatter.toFixed(2);fillVar(scatS);
     const z=M.zoneOf(sim.settings.hardness);
     zoneTicks.forEach((t,i)=>t.classList.toggle('on',i===z));
     chipName.textContent=M.ZONES[z].name;
@@ -171,6 +168,9 @@ function boot(){
   elasS.addEventListener('input',()=>{sim.settings.elasticity=elasS.value/100;elasV.textContent=elasS.value;fillVar(elasS);save();});
   glowS.addEventListener('input',()=>{sim.settings.glow=glowS.value/100;glowV.textContent=glowS.value;fillVar(glowS);save();});
   partS.addEventListener('input',()=>{sim.settings.particles=partS.value/100;partV.textContent=partS.value;fillVar(partS);save();});
+  chunkS.addEventListener('input',()=>{sim.settings.chunkSize=chunkS.value/100;chunkV.textContent=chunkS.value;fillVar(chunkS);save();});
+  gravS.addEventListener('input',()=>{sim.settings.gravity=gravS.value/10;gravV.textContent=sim.settings.gravity.toFixed(1);fillVar(gravS);save();});
+  scatS.addEventListener('input',()=>{sim.settings.scatter=scatS.value/100;scatV.textContent=sim.settings.scatter.toFixed(2);fillVar(scatS);save();});
 
   const dotsWrap=$('themeDots');
   Object.keys(M.THEMES).forEach(key=>{
@@ -181,6 +181,7 @@ function boot(){
     b.style.background=th.dot;
     b.addEventListener('click',()=>{
       audio.unlock();sim.settings.theme=key;sim.settings.accent=th.rim;
+      for(const c of sim.chunks)c._cols=null;
       audio.tick();haptics.impact('light');syncUI();save();
     });
     dotsWrap.appendChild(b);
@@ -233,6 +234,11 @@ function boot(){
 
   healBtn.addEventListener('click',()=>{audio.unlock();sim.heal();});
   $('resetBtn').addEventListener('click',()=>{audio.unlock();sim.reset();});
+  smashBtn.addEventListener('click',()=>{
+    audio.unlock();
+    if(sim.phase!=='live'){toast('материя уже собирается','warn');return;}
+    sim.shatter();
+  });
   $('shotBtn').addEventListener('click',()=>{
     audio.unlock();audio.shutter();haptics.impact('light');
     if(!renderer){toast('снимок недоступен без графики','warn');return;}
@@ -260,12 +266,15 @@ function boot(){
   let tweenId=null;
   $('randBtn').addEventListener('click',()=>{
     audio.unlock();audio.dice();haptics.impact('medium');
-    const from={h:sim.settings.hardness,size:sim.settings.size,e:sim.settings.elasticity,g:sim.settings.glow};
-    const soft=Math.random()<.6;
-    const to={h:soft?rand(.05,.5):rand(.5,.95),size:rand(.8,1.35),e:rand(.3,.95),g:rand(.6,1.6)};
+    const from={h:sim.settings.hardness,size:sim.settings.size,e:sim.settings.elasticity,g:sim.settings.glow,
+      cs:sim.settings.chunkSize,gr:sim.settings.gravity,sc:sim.settings.scatter};
+    const soft=Math.random()<.55;
+    const to={h:soft?rand(.05,.5):rand(.55,.95),size:rand(.8,1.35),e:rand(.3,.95),g:rand(.6,1.6),
+      cs:rand(.6,1.7),gr:rand(1.5,11),sc:rand(.5,2.1)};
     const keys=Object.keys(M.THEMES).filter(k=>k!==sim.settings.theme);
     sim.settings.theme=keys[(Math.random()*keys.length)|0];
     sim.settings.accent=M.THEMES[sim.settings.theme].rim;
+    for(const c of sim.chunks)c._cols=null;
     const t0=performance.now(),dur=500;
     if(tweenId)cancelAnimationFrame(tweenId);
     const step=()=>{
@@ -274,6 +283,9 @@ function boot(){
       sim.settings.size=lerp(from.size,to.size,e);
       sim.settings.elasticity=lerp(from.e,to.e,e);
       sim.settings.glow=lerp(from.g,to.g,e);
+      sim.settings.chunkSize=lerp(from.cs,to.cs,e);
+      sim.settings.gravity=lerp(from.gr,to.gr,e);
+      sim.settings.scatter=lerp(from.sc,to.sc,e);
       syncUI();
       if(k<1)tweenId=requestAnimationFrame(step);else{tweenId=null;save();}
     };
@@ -291,7 +303,6 @@ function boot(){
   if(saved)hint.classList.add('hidden');
   const hideHint=()=>hint.classList.add('hidden');
 
-  /* события материи */
   const themeCols=()=>{
     const th=M.THEMES[sim.settings.theme]||M.THEMES.ocean;
     return{
@@ -321,36 +332,47 @@ function boot(){
     const c=themeCols();
     if(renderer){
       renderer.paintCrack(d.crack);
-      renderer.shards(d.crack.dir,26,sim.settings.hardness<.8?c.ice:c.stone);
-      renderer.shake(.5);renderer.flash(.45);
+      renderer.shards(d.crack.dir,16,sim.settings.hardness<.8?c.ice:c.stone);
+      renderer.shake(.45);renderer.flash(.32);
     }
     audio.crack(sim.settings.hardness);
+    audio.chip(sim.settings.hardness);
     haptics.impact('heavy');haptics.notify('warning');
-    toast('трещина. выдохни — или залей золотом','warn');
+    const left=Math.round(sim.integrity*100);
+    toast(left>0?'скол: кусок отлетел · целостность '+left+'%':'последний скол — сейчас развалится','warn');
     updateHealPulse();
   });
-  sim.on('burst',()=>{
+  sim.on('land',d=>{
+    audio.land(d.power,d.hard);
+    if(renderer&&d.power>.35)renderer.dustAt([0,M.FLOOR,0],0,[0,0,0]);
+    if(d.power>.55)haptics.impact('light');
+  });
+  sim.on('shatter',d=>{
     const c=themeCols();
     if(renderer){
       renderer.clearCracks();
-      renderer.shards([0,0,1],120,c.bright);
-      renderer.shards([0,1,0],80,c.ice);
-      renderer.shake(1);renderer.flash(.9);
+      renderer.shards([0,0,1],60,c.bright);
+      renderer.shards([0,1,0],40,c.ice);
+      renderer.shake(1);renderer.flash(.85);
     }
-    audio.burst();haptics.notify('error');
-    toast('разбилось. сейчас соберётся заново','danger');
+    audio.shatter();haptics.notify('error');
+    toast('распалась на '+d.pieces+' частей','danger');
     updateHealPulse();
+  });
+  sim.on('reassemble',()=>{
+    audio.reassemble();
+    toast('куски летят обратно…','ok');
   });
   sim.on('reform',()=>{
-    if(renderer)renderer.goldSparks(40);
+    if(renderer)renderer.goldSparks(50);
     audio.reform();haptics.notify('success');
-    toast('собрано. чище, чем было','ok');
+    toast('собрана. снова целая','ok');
     updateHealPulse();
   });
-  sim.on('heal',()=>{
-    if(renderer){renderer.paintGold();renderer.goldSparks(70);}
+  sim.on('heal',d=>{
+    if(renderer){renderer.paintGold();renderer.goldSparks(60);}
     audio.heal();haptics.notify('success');
-    toast('кинцуги: шрамы стали золотом','gold');
+    toast('кинцуги: шрамы золотом · целостность '+Math.round(d.integrity*100)+'%','gold');
     updateHealPulse();
   });
   sim.on('healEmpty',()=>{audio.tick();toast('пока целое. надави подольше, когда твёрже','warn');});
@@ -359,7 +381,6 @@ function boot(){
     audio.reform();toast('материя обновлена','ok');updateHealPulse();
   });
 
-  /* ввод — перепривязываемый, чтобы фолбэк мог подменить canvas */
   const pointers=new Map();
   let mode=null,pinchD=0,lastTapT=0,inputAC=null;
   function attachInput(cv){
@@ -388,8 +409,7 @@ function boot(){
       const now=performance.now();
       if(pick.hit&&now-lastTapT<280){sim.tap(pick.dir,true);lastTapT=0;}
       else lastTapT=now;
-      if(sim.pointerDown(pick,e.pressure))mode='knead';
-      else mode='orbit';
+      mode=sim.pointerDown(pick,e.pressure)?'knead':'orbit';
       cv.classList.add('grabbing');
     },opt);
     cv.addEventListener('pointermove',e=>{
@@ -434,6 +454,7 @@ function boot(){
       else if(k==='-')renderer.zoom(1.14);
       else if(k===' '){audio.unlock();sim.tap(renderer.viewDir(),true);}
       else if(k==='h'||k==='H'||k==='р'||k==='Р'){audio.unlock();sim.heal();}
+      else if(k==='b'||k==='B'||k==='и'||k==='И'){audio.unlock();if(sim.phase==='live')sim.shatter();}
       else if(k==='r'||k==='R'||k==='к'||k==='К'){audio.unlock();sim.reset();}
       else used=false;
       if(used)e.preventDefault();
@@ -455,10 +476,9 @@ function boot(){
     }catch(e){showFatal(e&&e.message);}
   }
 
-  /* единый цикл */
   const stressWrap=$('stressWrap'),stressFill=$('stressFill');
   let raf=null,lastT=performance.now(),running=false,renderFails=0;
-  let creakT=0,blipT=0,lastStress=0,lastPct=-1,lastMatCss='';
+  let creakT=0,blipT=0,lastStress=0,lastPct=-1,lastMatCss='',lastInt=-1,lastPhase='live';
   function frame(now){
     raf=requestAnimationFrame(frame);
     let dt=(now-lastT)/1000;lastT=now;
@@ -488,6 +508,21 @@ function boot(){
     if(show)stressFill.style.width=Math.min(sim.stress*100,100)+'%';
     const pct=Math.round(h*100);
     if(pct!==lastPct){lastPct=pct;chipPct.textContent=pct+'%';}
+    const ip=Math.round(sim.integrity*100);
+    if(ip!==lastInt){
+      lastInt=ip;
+      intFill.style.width=ip+'%';
+      intPct.textContent=ip+'%';
+      intWrap.classList.toggle('warn',ip<=60&&ip>30);
+      intWrap.classList.toggle('bad',ip<=30);
+      smashBtn.classList.toggle('armed',ip<=45&&sim.phase==='live');
+    }
+    if(sim.phase!==lastPhase){
+      lastPhase=sim.phase;
+      smashBtn.disabled=false;
+      smashBtn.classList.toggle('armed',sim.integrity<=.45&&sim.phase==='live');
+      updateHealPulse();
+    }
     const css=rgbCss(themeCols().bright);
     if(css!==lastMatCss){lastMatCss=css;document.documentElement.style.setProperty('--mat',css);}
   }
@@ -501,7 +536,7 @@ function boot(){
   syncUI();
   if(!fatalShown){
     start();
-    if(!saved)setTimeout(()=>toast('води мышью по материи — она живая','ok'),1100);
+    if(!saved)setTimeout(()=>toast('води мышью по материи, а твёрдую — дави до сколов','ok'),1100);
     if(!glMode)setTimeout(()=>toast('WebGL недоступен — работаю в 2D','warn'),1600);
   }
 }

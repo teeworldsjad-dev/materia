@@ -1,8 +1,9 @@
-/* js/render-2d.js — рабочий фолбэк без WebGL */
+/* js/render-2d.js — фолбэк без WebGL: материя, выщербины, куски, распад */
 (function(){
 "use strict";
 const M=window.MAT;
 const{clamp,lerp,rand,hex2rgb,mixRGB,mulberry,smooth}=M;
+const ss=(a,b,x)=>{const t=clamp((x-a)/(b-a||1),0,1);return t*t*(3-2*t);};
 
 class Renderer2D{
   constructor(canvas,sim){
@@ -15,11 +16,19 @@ class Renderer2D{
     this.shakeAmp=0;this.flashA=0;
     this.parts=[];this.motes=[];
     this.ptsN=96;this.noiseSeed=rand(0,100);
+    this.shapes=[];
+    for(let s=0;s<6;s++){
+      const rng=mulberry(1000+s*77),pts=[];
+      const n=7;
+      for(let i=0;i<n;i++){
+        const a=i/n*Math.PI*2;
+        const r=.55+rng()*.55;
+        pts.push([Math.cos(a)*r,Math.sin(a)*r*(.6+rng()*.5)]);
+      }
+      this.shapes.push(pts);
+    }
   }
-  setQuality(q){
-    this.ptsN=q==='eco'?64:q==='ultra'?128:96;
-    this.resize(this.w,this.h);
-  }
+  setQuality(q){this.ptsN=q==='eco'?64:q==='ultra'?128:96;this.resize(this.w,this.h);}
   resize(w,h){
     this.w=Math.max(2,w);this.h=Math.max(2,h);
     const cap=this.sim.settings.quality==='eco'?1.25:2;
@@ -44,6 +53,11 @@ class Renderer2D{
     const a=Math.atan2(dir[1],dir[0])+this.spin;
     return[cx+Math.cos(a)*R,cy-Math.sin(a)*R];
   }
+  _world(p){
+    const cx=this.w/2,cy=this.h/2,R=this._R();
+    const k=1/(1+p[2]*.12);
+    return[cx+p[0]*R*k,cy-p[1]*R*k,R*k];
+  }
   droplets(dir,power,col){
     const p=this._px(dir);
     const n=Math.round((10+power*20)*this.sim.settings.particles);
@@ -52,10 +66,15 @@ class Renderer2D{
   shards(dir,n,col){
     const p=this._px(dir);
     const cnt=Math.round(n*this.sim.settings.particles);
-    for(let i=0;i<cnt;i++)this.parts.push({x:p[0],y:p[1],vx:rand(-180,180),vy:rand(-220,60),life:rand(.5,1.2),max:1.2,size:rand(2.5,6),col,g:420});
+    for(let i=0;i<cnt;i++)this.parts.push({x:p[0],y:p[1],vx:rand(-180,180),vy:rand(-220,60),life:rand(.5,1.2),max:1.2,size:rand(2,5),col,g:420});
+  }
+  dustAt(pos,n,col){
+    const p=this._world(pos);
+    const cnt=Math.round(n*this.sim.settings.particles);
+    for(let i=0;i<cnt;i++)this.parts.push({x:p[0],y:p[1],vx:rand(-60,60),vy:rand(-70,-10),life:rand(.3,.7),max:.7,size:rand(1.5,3.4),col,g:120});
   }
   goldSparks(n){
-    const cx=this.w/2,cy=this.h/2,R=this._R()*this.sim.renderScale(),gold=hex2rgb(M.GOLD);
+    const cx=this.w/2,cy=this.h/2,R=this._R()*Math.max(this.sim.renderScale(),.5),gold=hex2rgb(M.GOLD);
     const cnt=Math.round(n*this.sim.settings.particles);
     for(let i=0;i<cnt;i++){
       const a=rand(0,Math.PI*2);
@@ -75,15 +94,18 @@ class Renderer2D{
   }
   paintGold(){}
   clearCracks(){}
-  _colors(){
+  _colsFor(h){
     const s=this.sim.settings,th=M.THEMES[s.theme]||M.THEMES.ocean;
-    const t=smooth(clamp((s.hardness-.25)/.6,0,1));
+    const t=smooth(clamp((h-.25)/.6,0,1));
     return{
       deep:mixRGB(hex2rgb(th.liqDeep),hex2rgb(th.solDeep),t),
-      bright:mixRGB(hex2rgb(th.liqBright),hex2rgb(th.solBright),t),
-      rim:hex2rgb(s.accent||th.rim),
-      glow:hex2rgb(th.glow)
+      bright:mixRGB(hex2rgb(th.liqBright),hex2rgb(th.solBright),t)
     };
+  }
+  _colors(){
+    const s=this.sim.settings,th=M.THEMES[s.theme]||M.THEMES.ocean;
+    const c=this._colsFor(s.hardness);
+    return{deep:c.deep,bright:c.bright,rim:hex2rgb(s.accent||th.rim),glow:hex2rgb(th.glow),ember:hex2rgb(th.ember)};
   }
   render(t,dt){
     const ctx=this.ctx,sim=this.sim,s=sim.settings;
@@ -99,12 +121,18 @@ class Renderer2D{
     const bg=ctx.createLinearGradient(0,0,0,this.h);
     bg.addColorStop(0,'#05070f');bg.addColorStop(1,'#0a1122');
     ctx.fillStyle=bg;ctx.fillRect(-24,-24,this.w+48,this.h+48);
-    const cx=this.w/2,cy=this.h/2,R=this._R()*sim.renderScale();
-    if(R>2&&s.glow>0){
-      const g=ctx.createRadialGradient(cx,cy,R*.3,cx,cy,R*2.4);
-      g.addColorStop(0,rgba(C.glow,.22*s.glow));g.addColorStop(1,'rgba(0,0,0,0)');
+    const cx=this.w/2,cy=this.h/2,R=this._R()*sim.renderScale(),Rw=this._R();
+    const floorY=cy-M.FLOOR*Rw;
+    if(s.glow>0){
+      const g=ctx.createRadialGradient(cx,cy,Rw*.2,cx,cy,Rw*2.4);
+      g.addColorStop(0,rgba(C.glow,.18*s.glow));g.addColorStop(1,'rgba(0,0,0,0)');
       ctx.fillStyle=g;ctx.fillRect(-24,-24,this.w+48,this.h+48);
     }
+    /* пол */
+    const pool=ctx.createRadialGradient(cx,floorY,0,cx,floorY,Rw*2.6);
+    pool.addColorStop(0,rgba(C.glow,.14));pool.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.save();ctx.translate(cx,floorY);ctx.scale(1,.24);ctx.translate(-cx,-floorY);
+    ctx.fillStyle=pool;ctx.beginPath();ctx.arc(cx,floorY,Rw*2.6,0,Math.PI*2);ctx.fill();ctx.restore();
     const moteN=Math.round(50*s.particles);
     while(this.motes.length<moteN)this.motes.push({x:rand(0,this.w),y:rand(0,this.h),s:rand(.6,2),seed:rand(0,10)});
     if(this.motes.length>moteN)this.motes.length=moteN;
@@ -115,7 +143,22 @@ class Renderer2D{
     }
     if(R>2){
       ctx.fillStyle='rgba(0,0,0,.4)';
-      ctx.beginPath();ctx.ellipse(cx,cy+R*1.42,R*1.2,R*.3,0,0,Math.PI*2);ctx.fill();
+      ctx.beginPath();ctx.ellipse(cx,floorY,R*1.2,R*.28,0,0,Math.PI*2);ctx.fill();
+    }
+    /* тени кусков */
+    for(const c of sim.chunks){
+      const fade=c.mode==='return'?1:clamp(c.life/.5,0,1);
+      const cs=c.size*fade;
+      if(cs<.006)continue;
+      const hgt=clamp((c.p[1]-M.FLOOR)/2.4,0,1);
+      const op=(1-hgt)*.35*fade;
+      if(op<=.01)continue;
+      const px=cx+c.p[0]*Rw;
+      ctx.fillStyle='rgba(0,0,0,'+op+')';
+      ctx.beginPath();ctx.ellipse(px,floorY,cs*Rw*1.6,cs*Rw*.5,0,0,Math.PI*2);ctx.fill();
+    }
+    /* материя */
+    if(R>2){
       const N=this.ptsN,pts=[];
       const sv=sim.squashVec(),sc=sim.renderScale()||1;
       for(let i=0;i<N;i++){
@@ -133,6 +176,12 @@ class Renderer2D{
             const sr=rad*.55;
             r+=dn.a*Math.exp(-ad*ad/(sr*sr));
           }
+        }
+        for(const bt of sim.bites){
+          const ad=Math.acos(clamp(M.dot(d,bt.dir),-1,1));
+          const br=Math.max(bt.r,.06);
+          r-=bt.depth*(1-ss(br*.5,br,ad));
+          r+=bt.depth*.4*ss(br*.55,br*.95,ad)*(1-ss(br*.95,br*1.4,ad));
         }
         r+=sim.osc[0].a*.12*Math.sin(d.x*3.3+t*sim.mp.wf);
         r+=sim.osc[1].a*.12*Math.sin(d.y*3.7+t*sim.mp.wf*1.31+1.7);
@@ -157,6 +206,12 @@ class Renderer2D{
       ctx.save();ctx.clip();
       ctx.fillStyle='rgba(255,255,255,.16)';
       ctx.beginPath();ctx.ellipse(cx-R*.35,cy-R*.45,R*.4,R*.22,-.6,0,Math.PI*2);ctx.fill();
+      for(const bt of sim.bites){
+        const bp=this._px(bt.dir);
+        const bg2=ctx.createRadialGradient(bp[0],bp[1],0,bp[0],bp[1],R*bt.r*1.5);
+        bg2.addColorStop(0,rgba(C.deep,.85));bg2.addColorStop(1,'rgba(0,0,0,0)');
+        ctx.fillStyle=bg2;ctx.beginPath();ctx.arc(bp[0],bp[1],R*bt.r*1.5,0,Math.PI*2);ctx.fill();
+      }
       if(sim.grab){
         const gp=this._px(sim.grab.dir);
         const pg=ctx.createRadialGradient(gp[0],gp[1],0,gp[0],gp[1],R*.6);
@@ -188,6 +243,34 @@ class Renderer2D{
       }
       ctx.restore();
     }
+    /* куски */
+    for(const c of sim.chunks){
+      const fade=c.mode==='return'?1:clamp(c.life/.5,0,1);
+      const cs=c.size*fade;
+      if(cs<.006)continue;
+      if(!c._cols)c._cols=this._colsFor(c.hard);
+      const w=this._world(c.p);
+      const size=cs*w[2];
+      if(size<.6)continue;
+      const shape=this.shapes[c.variant%this.shapes.length];
+      ctx.save();
+      ctx.translate(w[0],w[1]);
+      ctx.rotate(-c.rot[2]);
+      ctx.beginPath();
+      for(let i=0;i<shape.length;i++){
+        const x=shape[i][0]*size,y=shape[i][1]*size;
+        if(i)ctx.lineTo(x,y);else ctx.moveTo(x,y);
+      }
+      ctx.closePath();
+      const sg=ctx.createLinearGradient(-size,-size,size,size);
+      sg.addColorStop(0,css(c._cols.bright));sg.addColorStop(1,css(c._cols.deep));
+      ctx.fillStyle=sg;
+      if(c.fresh>.05){ctx.shadowColor=rgba(C.ember,clamp(c.fresh,0,1));ctx.shadowBlur=14*c.fresh;}
+      ctx.fill();ctx.shadowBlur=0;
+      ctx.strokeStyle=rgba(C.rim,.55);ctx.lineWidth=1;ctx.stroke();
+      ctx.restore();
+    }
+    /* частицы */
     ctx.globalCompositeOperation='lighter';
     for(let i=this.parts.length-1;i>=0;i--){
       const p=this.parts[i];

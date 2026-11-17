@@ -1,11 +1,5 @@
 <!-- index.html
-     /index.html
-     /styles.css
-     /js/core.js
-     /js/render-gl.js
-     /js/render-2d.js
-     /js/app.js
-     Открывается двойным кликом по index.html в любом браузере, без сервера и без Telegram.
+     /index.html  /styles.css  /js/core.js  /js/render-gl.js  /js/render-2d.js  /js/app.js
 -->
 <!DOCTYPE html>
 <html lang="ru">
@@ -13,7 +7,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#05070f">
-<meta name="description" content="материя — антистресс-лаборатория: мни, тяни, ломай, лечи золотом.">
+<meta name="description" content="материя — антистресс-лаборатория: мни, тяни, откалывай куски, разбей на части и собери заново.">
 <title>материя — антистресс</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 3c7 0 13 5 13 12 0 8-6 14-13 14S3 24 3 16C3 8 9 3 16 3z' fill='%2335e0d0'/%3E%3Ccircle cx='11' cy='12' r='4' fill='%23eaf2ff' opacity='.7'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -35,7 +29,7 @@
       </svg>
       <div class="brand-txt">
         <span class="wordmark">материя</span>
-        <span class="tagline">антистресс · мни · ломай · лечи золотом</span>
+        <span class="tagline">мни · откалывай · разбей · собери заново</span>
       </div>
     </div>
     <div class="top-actions">
@@ -50,12 +44,19 @@
 
   <main id="main">
     <section id="stage" data-enter="2">
-      <canvas id="view" tabindex="0" aria-label="материя: мни пальцем, тяни за край, дави когда твёрдая. фон — вращение, колесо — зум, пробел — тычок."></canvas>
+      <canvas id="view" tabindex="0" aria-label="материя: мни пальцем, тяни за край, дави когда твёрдая — откалываются куски. фон — вращение, колесо — зум, пробел — тычок."></canvas>
 
-      <div id="chipMat" class="chip">
-        <span class="chip-ic" id="chipIcon"></span>
-        <span class="chip-name" id="chipName">слайм</span>
-        <span class="chip-pct" id="chipPct">32%</span>
+      <div class="hud-top">
+        <div id="chipMat" class="chip">
+          <span class="chip-ic" id="chipIcon"></span>
+          <span class="chip-name" id="chipName">слайм</span>
+          <span class="chip-pct mono" id="chipPct">32%</span>
+        </div>
+        <div id="integrityWrap" class="integrity">
+          <span class="integrity-label">целостность</span>
+          <span class="integrity-track"><span id="integrityFill"></span></span>
+          <span class="integrity-pct mono" id="integrityPct">100%</span>
+        </div>
       </div>
 
       <div id="stressWrap" class="stress" aria-hidden="true">
@@ -69,12 +70,12 @@
           <path d="M22 12v14l-4-3.4c-1.2-1-2.8.4-2 1.8l5.4 9c.8 1.4 2.3 2.6 4.6 2.6h4c3 0 5-2 5-5v-8c0-1.4-1-2.4-2.4-2.4-.5 0-1 .2-1.4.5-.2-1.2-1.2-2-2.4-2-.6 0-1.1.2-1.5.5-.3-1.1-1.3-1.9-2.5-1.9-.5 0-1 .1-1.3.4V12c0-1.4-1.5-2.2-2.5-1.4-.6.4-.9 1-.9 1.4z" fill="currentColor" opacity=".9"/>
         </svg>
         <div class="hint-txt">мни · тяни · дави</div>
-        <div class="hint-sub">мягкая — течёт, твёрдая — треснет</div>
+        <div class="hint-sub">твёрдая — откалывается кусками</div>
       </div>
 
       <div id="fatal" class="fatal" hidden>
         <h2>графика не запустилась</h2>
-        <p>браузер не дал ни WebGL, ни Canvas 2D. попробуй другой браузер или включи аппаратное ускорение в настройках.</p>
+        <p>браузер не дал ни WebGL, ни Canvas 2D. попробуй другой браузер или включи аппаратное ускорение.</p>
         <p class="mono" id="fatalLog"></p>
       </div>
 
@@ -85,18 +86,21 @@
           <button id="helpClose" class="icon-btn help-x" aria-label="закрыть">
             <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
           </button>
-          <h2>как мять</h2>
+          <h2>как мять и ломать</h2>
           <ul class="gestures">
             <li><b>жми и держи</b> — вминается глубже с каждой секундой</li>
             <li><b>води пальцем или мышью</b> — мни и размазывай, как тесто</li>
             <li><b>тяни за край</b> — мягкая материя вытягивается в нить и срывается каплями</li>
-            <li><b>дави долго, когда твёрдая</b> — копится напряжение → трещина</li>
-            <li><b>частые тычки</b> по твёрдой — тоже ломают</li>
-            <li><b>кинцуги</b> — залей трещины золотом, шрамы станут украшением</li>
-            <li><b>тяни по фону</b> — вращай камеру · <b>колесо / щипок</b> — зум</li>
-            <li><b>клавиши</b>: стрелки — камера, +/− — зум, пробел — тычок, H — кинцуги, R — сброс</li>
+            <li><b>дави долго, когда твёрдая</b> — напряжение → трещина, и от неё <b>откалывается кусок</b>: на боку остаётся выщербина</li>
+            <li><b>частые тычки</b> по твёрдой — тоже колют</li>
+            <li><b>целостность на нуле</b> — материя распадается на части, они падают, отскакивают и лежат</li>
+            <li><b>расколоть</b> — разбить сразу, не дожидаясь трещин</li>
+            <li><b>кинцуги</b> — золотом залечить трещины, затянуть выщербины и вернуть целостность</li>
+            <li><b>осколки / гравитация / разлёт</b> — размер кусков, сила падения и сила взрыва</li>
+            <li><b>тяни по фону</b> — камера · <b>колесо / щипок</b> — зум</li>
+            <li><b>клавиши</b>: стрелки — камера, +/− — зум, пробел — тычок, H — кинцуги, B — расколоть, R — сброс</li>
           </ul>
-          <p class="help-note">звук включится с первым касанием — так требует браузер. семь трещин — и материя разобьётся, чтобы собраться заново.</p>
+          <p class="help-note">звук включится с первым касанием — так требует браузер. после распада куски сами слетаются обратно: материя собирается заново, целая.</p>
           <p class="help-mode mono" id="helpMode">рендер: —</p>
         </div>
       </div>
@@ -116,7 +120,7 @@
       <div class="deck-sec grid3" data-title="поведение">
         <div class="mini-ctl">
           <div class="ctl-head"><span class="ctl-name">размер</span><span class="ctl-val mono" id="sizeVal">1.00</span></div>
-          <input type="range" id="sizeSlider" class="range" min="60" max="160" value="100" aria-label="размер">
+          <input type="range" id="sizeSlider" class="range" min="60" max="160" value="100" aria-label="размер материи">
         </div>
         <div class="mini-ctl">
           <div class="ctl-head"><span class="ctl-name">упругость</span><span class="ctl-val mono" id="elasVal">65</span></div>
@@ -129,6 +133,18 @@
         <div class="mini-ctl">
           <div class="ctl-head"><span class="ctl-name">частицы</span><span class="ctl-val mono" id="partVal">100</span></div>
           <input type="range" id="partSlider" class="range" min="0" max="200" value="100" aria-label="количество частиц">
+        </div>
+        <div class="mini-ctl">
+          <div class="ctl-head"><span class="ctl-name">осколки</span><span class="ctl-val mono" id="chunkVal">100</span></div>
+          <input type="range" id="chunkSlider" class="range" min="50" max="180" value="100" aria-label="размер откалываемых кусков">
+        </div>
+        <div class="mini-ctl">
+          <div class="ctl-head"><span class="ctl-name">гравитация</span><span class="ctl-val mono" id="gravVal">5.5</span></div>
+          <input type="range" id="gravSlider" class="range" min="0" max="140" value="55" aria-label="гравитация осколков">
+        </div>
+        <div class="mini-ctl">
+          <div class="ctl-head"><span class="ctl-name">разлёт</span><span class="ctl-val mono" id="scatVal">1.00</span></div>
+          <input type="range" id="scatSlider" class="range" min="30" max="240" value="100" aria-label="сила разлёта кусков">
         </div>
         <div class="mini-ctl">
           <div class="ctl-head"><span class="ctl-name">тема</span></div>
@@ -145,7 +161,7 @@
       <div class="deck-sec chips-row" data-title="режим">
         <button id="vibChip" class="chip-toggle on" aria-pressed="true"><i class="dot"></i>вибро</button>
         <button id="rotChip" class="chip-toggle on" aria-pressed="true"><i class="dot"></i>вращение</button>
-        <span class="stats mono" id="stats">замесы 0 · трещины 0 · кинцуги 0</span>
+        <span class="stats mono" id="stats">замесы 0 · осколки 0 · кинцуги 0</span>
       </div>
 
       <div class="deck-sec actions" data-title="действия">
@@ -164,6 +180,13 @@
         <button id="shotBtn" class="act ghost cyan">
           <svg viewBox="0 0 24 24"><path d="M4 8h3l2-2.5h6L17 8h3v11H4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.2" fill="none" stroke="currentColor" stroke-width="2"/></svg>
           снимок
+        </button>
+      </div>
+
+      <div class="deck-sec">
+        <button id="smashBtn" class="act danger wide">
+          <svg viewBox="0 0 24 24"><path d="M13 2L7 12h4l-2 10 8-12h-4z" fill="currentColor"/></svg>
+          расколоть на части
         </button>
       </div>
 
